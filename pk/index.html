@@ -69,7 +69,6 @@
   <div id="gameContainer">
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     <div class="center-message" id="centerMessage">上にスワイプしてシュートしよう！</div>
-    <!-- スコアUIは削除 -->
     <div class="count-ui" id="countUI">0/15</div>
     <div id="goalMessage">GOAL!</div>
   </div>
@@ -94,26 +93,28 @@
       return minScale + (maxScale - minScale) * ((y - horizon) / (canvas.height - horizon));
     }
 
-    // field.webp を背景画像として読み込む
+    // フィールド画像
     const fieldImage = new Image();
     fieldImage.src = "field.webp";
 
+    // ボール画像
     const ballImage = new Image();
     ballImage.src = "ball.webp";
 
+    // ゴールポスト画像
     const goalPostImage = new Image();
     goalPostImage.src = "goal.webp";
 
-    // キーパー画像の読み込み
+    // キーパー画像
     const keeperImage = new Image();
     keeperImage.src = "keeper.webp";
 
     function drawBackground() {
-      // fieldImage が読み込まれている場合は、それを背景として描画
+      // fieldImage が読み込まれている場合は背景に描画
       if (fieldImage.complete && fieldImage.naturalWidth !== 0) {
         ctx.drawImage(fieldImage, 0, 0, canvas.width, canvas.height);
       } else {
-        // fieldImage が未ロードの場合はグラデーション背景を描画
+        // 読み込まれていない場合はグラデーション
         const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
         grad.addColorStop(0, '#89CFF0');
         grad.addColorStop(0.3, '#AAD751');
@@ -121,13 +122,13 @@
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
-      // ゴールポストの描画
+      // ゴールポスト描画
       if (goalPostImage.complete && goalPostImage.naturalWidth !== 0) {
         let goalWidth = canvas.width * 0.4;
         let goalHeight = goalWidth * (goalPostImage.naturalHeight / goalPostImage.naturalWidth);
-        // ゴールポスト下方向オフセット80px
         ctx.drawImage(goalPostImage, canvas.width * 0.3, horizon - goalHeight + 80, goalWidth, goalHeight);
       } else {
+        // 画像未ロード時は簡易的に線を描画
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
         for (let i = 0; i < 5; i++) {
@@ -159,24 +160,25 @@
       y: 100,
       width: 50,
       height: 50,
-      vx: 0 // 初期値は0。updateGoalkeeperでランダムな動きを加えます。
+      vx: 0
     };
 
-    // キーパー画像を6倍に拡大し、offsetY を70に設定
     function drawGoalkeeper() {
       const scale = getScale(goalkeeper.y);
-      let keeperWidth = goalkeeper.width * scale * 6;
+      let keeperWidth = goalkeeper.width * scale * 6; // 6倍拡大
       let keeperHeight = keeperWidth * (keeperImage.naturalHeight / keeperImage.naturalWidth);
       const offsetY = 70;
       ctx.drawImage(keeperImage, goalkeeper.x - keeperWidth / 2, (goalkeeper.y - keeperHeight) + offsetY, keeperWidth, keeperHeight);
     }
 
-    // キーパーの動きをランダムに（ランダムな加速度を毎フレーム加える）
     function updateGoalkeeper() {
+      // ランダムに動く
       goalkeeper.vx += (Math.random() - 0.5) * 0.2;
       if (goalkeeper.vx > 5) goalkeeper.vx = 5;
       if (goalkeeper.vx < -5) goalkeeper.vx = -5;
       goalkeeper.x += goalkeeper.vx;
+
+      // 左右の制限
       const leftLimit = canvas.width * 0.3;
       const rightLimit = canvas.width * 0.7;
       if (goalkeeper.x < leftLimit) {
@@ -193,6 +195,7 @@
       if (!ball.isShooting) return;
       ball.x += ball.vx;
       ball.y += ball.vy;
+      // ちょっとずつ減速
       ball.vx *= 0.98;
       ball.vy *= 0.98;
     }
@@ -213,26 +216,57 @@
       }
     }
 
-    // リセット処理が重複しないようにするためのフラグ
+    // リセット処理が重複しないようフラグを用意
     let resetInProgress = false;
+
+    // シュート中の自動リセット用タイマーID
+    let shotTimerId = null;
+    // 何秒後に自動リセットするか（ミリ秒）
+    const AUTO_RESET_TIME = 3000;
+
+    function startShotTimer() {
+      // 万が一前のタイマーが残っていればクリア
+      if (shotTimerId) {
+        clearTimeout(shotTimerId);
+      }
+      shotTimerId = setTimeout(() => {
+        // ゴールでもセーブでもなかった場合、一定時間経過でリセット
+        resetBall();
+      }, AUTO_RESET_TIME);
+    }
+
+    function stopShotTimer() {
+      if (shotTimerId) {
+        clearTimeout(shotTimerId);
+        shotTimerId = null;
+      }
+    }
+
     function resetBall() {
+      // 二重リセットを防ぐ
       if (resetInProgress) return;
       resetInProgress = true;
-      
+
+      // タイマーも必ずクリアしておく
+      stopShotTimer();
+
       ball.x = canvas.width / 2;
       ball.y = 500;
       ball.vx = 0;
       ball.vy = 0;
       ball.isShooting = false;
+
       shotCount++;
       if (shotCount === maxShots) {
         alert("ゲーム終了！");
         shotCount = 0;
       }
       updateUI();
-      
-      // 少し待ってからリセット状態を解除（重複防止）
-      setTimeout(() => { resetInProgress = false; }, 0);
+
+      // タイミングをずらしてフラグ解除
+      setTimeout(() => {
+        resetInProgress = false;
+      }, 0);
     }
 
     // スコアではなく試行回数のみ表示
@@ -240,30 +274,32 @@
       countUI.textContent = shotCount + "/" + maxShots;
     }
 
-    // ゴール判定：
-    // ボールがゴールライン（horizon+20）を超えた場合に、さらにボールの x 座標が
-    // ゴールポスト内（canvas.width*0.3～canvas.width*0.7）のときのみゴールと判定
+    // ゴール判定
     function checkGoal() {
+      // ボールがゴールライン（horizon+20）より上にいったらゴール判定
       if (ball.y < horizon + 20) {
         const goalLeft = canvas.width * 0.3;
         const goalRight = canvas.width * 0.7;
         if (ball.x >= goalLeft && ball.x <= goalRight) {
+          // ゴール！
           goalMessage.textContent = "GOAL!";
           goalMessage.style.display = "block";
           paused = true;
+          // タイマー停止
+          stopShotTimer();
           setTimeout(() => {
             goalMessage.style.display = "none";
             resetBall();
             paused = false;
           }, 1000);
         } else {
-          // ゴールポストの外側の場合は単にリセット
+          // 外したので即リセット
           resetBall();
         }
       }
     }
 
-    // キーパーとの衝突判定：衝突した場合は alert の代わりに「止めた！」と表示
+    // キーパーとの衝突判定
     function checkCollision() {
       if (!ball.isShooting) return;
       const dist = Math.hypot(ball.x - goalkeeper.x, ball.y - goalkeeper.y);
@@ -272,38 +308,51 @@
       const scaleBall = getScale(ball.y);
       const ballRadius = ball.radius * scaleBall;
       if (dist < gkRadius + ballRadius) {
-         goalMessage.textContent = "止めた！";
-         goalMessage.style.display = "block";
-         paused = true;
-         setTimeout(() => {
-           goalMessage.style.display = "none";
-           resetBall();
-           paused = false;
-         }, 1000);
+        // セーブ！
+        goalMessage.textContent = "止めた！";
+        goalMessage.style.display = "block";
+        paused = true;
+        // タイマー停止
+        stopShotTimer();
+        setTimeout(() => {
+          goalMessage.style.display = "none";
+          resetBall();
+          paused = false;
+        }, 1000);
       }
     }
 
+    // Pointer Eventsでドラッグ操作（マウス／タッチ両対応）
     let isDragging = false;
     let dragStart = { x: 0, y: 0 };
-    canvas.addEventListener('mousedown', (e) => {
+
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       if (!ball.isShooting) {
         isDragging = true;
         dragStart.x = e.offsetX;
         dragStart.y = e.offsetY;
       }
     });
-    canvas.addEventListener('mouseup', (e) => {
+
+    canvas.addEventListener('pointerup', (e) => {
+      e.preventDefault();
       if (isDragging) {
         isDragging = false;
         const dx = dragStart.x - e.offsetX;
         const dy = dragStart.y - e.offsetY;
+        // ボールに速度を与える
         ball.vx = -dx * 0.2;
         ball.vy = -dy * 0.2;
         ball.isShooting = true;
         centerMessage.style.display = "none";
+
+        // シュートしたら一定時間後に自動リセット
+        startShotTimer();
       }
     });
 
+    // ゲームループ
     function gameLoop() {
       if (paused) {
         requestAnimationFrame(gameLoop);
@@ -314,6 +363,7 @@
       updateBall();
       drawGoalkeeper();
       drawBall();
+
       if (ball.isShooting) {
         checkCollision();
         checkGoal();
