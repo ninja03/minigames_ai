@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>サッカーPKゲーム (疑似3D・UIイメージ)</title>
+  <title>サッカーPKゲーム</title>
   <style>
     body {
       margin: 0;
-      background-color: #000;
+      background-color: #fff;
       font-family: Arial, sans-serif;
-      color: #fff;
+      color: #000;
       text-align: center;
     }
     #gameCanvas {
@@ -21,14 +21,13 @@
     #gameContainer {
       position: relative;
       width: 800px;
-      margin: 20px auto; /* 中央寄せ */
+      margin: 20px auto;
     }
     #gameCanvas {
       width: 800px;
       height: 600px;
       z-index: 1;
     }
-    /* 画面中央のメッセージ */
     .center-message {
       position: absolute;
       top: 50%;
@@ -37,68 +36,42 @@
       font-size: 32px;
       font-weight: bold;
       color: #fff;
-      pointer-events: none; /* クリックなどを透過 */
+      pointer-events: none;
       text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
     }
-    /* スコアやカウントなどのUI */
-    .score-ui {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      font-size: 24px;
-      font-weight: bold;
-      text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
-    }
+    /* 試行回数のみ表示（スコアは表示しない） */
     .count-ui {
       position: absolute;
       bottom: 20px;
       right: 20px;
       font-size: 24px;
       font-weight: bold;
+      color: white;
       text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
     }
-    /* 右上のボタンアイコン */
-    .top-buttons {
+    /* ゴール・セーブ時のメッセージ表示用 */
+    #goalMessage {
       position: absolute;
-      top: 10px;
-      right: 10px;
-      display: flex;
-      gap: 10px;
-    }
-    .btn-icon {
-      width: 40px;
-      height: 40px;
-      background-color: rgba(255,255,255,0.2);
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      user-select: none;
-    }
-    .btn-icon:hover {
-      background-color: rgba(255,255,255,0.4);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 48px;
+      font-weight: bold;
+      color: yellow;
+      text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+      display: none;
+      pointer-events: none;
     }
   </style>
 </head>
 <body>
-  <h1>サッカーPKゲーム (疑似3Dイメージ)</h1>
+  <h1>サッカーPKゲーム</h1>
   <div id="gameContainer">
     <canvas id="gameCanvas" width="800" height="600"></canvas>
-
-    <!-- 中央メッセージ -->
-    <div class="center-message" id="centerMessage">SWIPE TO KICK THE BALL</div>
-
-    <!-- スコア表示 -->
-    <div class="score-ui" id="scoreUI">SCORE 0</div>
-    <!-- カウント表示 -->
+    <div class="center-message" id="centerMessage">上にスワイプしてシュートしよう！</div>
+    <!-- スコアUIは削除 -->
     <div class="count-ui" id="countUI">0/15</div>
-
-    <!-- 右上ボタン群 -->
-    <div class="top-buttons">
-      <div class="btn-icon" onclick="togglePause()">⏸</div>  <!-- 一時停止ボタン -->
-      <div class="btn-icon" onclick="toggleSound()">🔊</div> <!-- 音量ボタン(仮) -->
-    </div>
+    <div id="goalMessage">GOAL!</div>
   </div>
 
   <script>
@@ -106,90 +79,130 @@
     const ctx = canvas.getContext('2d');
 
     const centerMessage = document.getElementById('centerMessage');
-    const scoreUI = document.getElementById('scoreUI');
     const countUI = document.getElementById('countUI');
+    const goalMessage = document.getElementById('goalMessage');
 
-    // ゲーム状態
-    let paused = false;
-    let score = 0;
     let shotCount = 0;
     const maxShots = 15;
+    let paused = false; // ゲーム全体の停止フラグ
 
-    // 疑似3D用スケール計算
-    const horizon = 50;          // ゴールライン（上側）に近い位置
+    const horizon = 100;  // ゴールラインの位置
     const minScale = 0.3;
     const maxScale = 1.2;
-
     function getScale(y) {
-      // y: 0～600 (canvas.height)
-      // horizon(50)～600 の間でスケール補間
       if (y < horizon) y = horizon;
       return minScale + (maxScale - minScale) * ((y - horizon) / (canvas.height - horizon));
     }
 
-    // 背景・ゴールネット・フィールドの描画
-    function drawBackground() {
-      // 背景全体を塗りつぶし (スタジアム風にグラデーションをかけるなど)
-      const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      grad.addColorStop(0, '#89CFF0'); // 空色
-      grad.addColorStop(0.3, '#AAD751'); // 観客席っぽい色(仮)
-      grad.addColorStop(1, '#228B22'); // フィールドの緑
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // field.webp を背景画像として読み込む
+    const fieldImage = new Image();
+    fieldImage.src = "field.webp";
 
-      // ゴールネット (奥の線) を簡易的に
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      // 横ライン
-      for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.moveTo(canvas.width * 0.3, horizon + i * 10);
-        ctx.lineTo(canvas.width * 0.7, horizon + i * 10);
-        ctx.stroke();
-      }
-      // 縦ライン
-      for (let j = 0; j < 5; j++) {
-        ctx.beginPath();
-        ctx.moveTo(canvas.width * (0.3 + j * 0.1), horizon);
-        ctx.lineTo(canvas.width * (0.3 + j * 0.1), horizon + 40);
-        ctx.stroke();
-      }
-    }
-
-    // ボール画像の読み込み
     const ballImage = new Image();
     ballImage.src = "ball.webp";
 
-    // ボールオブジェクト
+    const goalPostImage = new Image();
+    goalPostImage.src = "goal.webp";
+
+    // キーパー画像の読み込み
+    const keeperImage = new Image();
+    keeperImage.src = "keeper.webp";
+
+    function drawBackground() {
+      // fieldImage が読み込まれている場合は、それを背景として描画
+      if (fieldImage.complete && fieldImage.naturalWidth !== 0) {
+        ctx.drawImage(fieldImage, 0, 0, canvas.width, canvas.height);
+      } else {
+        // fieldImage が未ロードの場合はグラデーション背景を描画
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, '#89CFF0');
+        grad.addColorStop(0.3, '#AAD751');
+        grad.addColorStop(1, '#228B22');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      // ゴールポストの描画
+      if (goalPostImage.complete && goalPostImage.naturalWidth !== 0) {
+        let goalWidth = canvas.width * 0.4;
+        let goalHeight = goalWidth * (goalPostImage.naturalHeight / goalPostImage.naturalWidth);
+        // ゴールポスト下方向オフセット80px
+        ctx.drawImage(goalPostImage, canvas.width * 0.3, horizon - goalHeight + 80, goalWidth, goalHeight);
+      } else {
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 5; i++) {
+          ctx.beginPath();
+          ctx.moveTo(canvas.width * 0.3, horizon + i * 10);
+          ctx.lineTo(canvas.width * 0.7, horizon + i * 10);
+          ctx.stroke();
+        }
+        for (let j = 0; j < 5; j++) {
+          ctx.beginPath();
+          ctx.moveTo(canvas.width * (0.3 + j * 0.1), horizon);
+          ctx.lineTo(canvas.width * (0.3 + j * 0.1), horizon + 40);
+          ctx.stroke();
+        }
+      }
+    }
+
     const ball = {
       x: canvas.width / 2,
       y: 500,
-      radius: 40,   // 大きめにして、手前感を演出
+      radius: 40,
       vx: 0,
       vy: 0,
       isShooting: false
     };
 
-    // ゴールキーパー
     const goalkeeper = {
       x: canvas.width / 2,
-      y: 100,       // ゴールラインより少し手前
+      y: 100,
       width: 50,
       height: 50,
-      vx: 2
+      vx: 0 // 初期値は0。updateGoalkeeperでランダムな動きを加えます。
     };
 
-    // ボールを描画（画像使用）
+    // キーパー画像を6倍に拡大し、offsetY を70に設定
+    function drawGoalkeeper() {
+      const scale = getScale(goalkeeper.y);
+      let keeperWidth = goalkeeper.width * scale * 6;
+      let keeperHeight = keeperWidth * (keeperImage.naturalHeight / keeperImage.naturalWidth);
+      const offsetY = 70;
+      ctx.drawImage(keeperImage, goalkeeper.x - keeperWidth / 2, (goalkeeper.y - keeperHeight) + offsetY, keeperWidth, keeperHeight);
+    }
+
+    // キーパーの動きをランダムに（ランダムな加速度を毎フレーム加える）
+    function updateGoalkeeper() {
+      goalkeeper.vx += (Math.random() - 0.5) * 0.2;
+      if (goalkeeper.vx > 5) goalkeeper.vx = 5;
+      if (goalkeeper.vx < -5) goalkeeper.vx = -5;
+      goalkeeper.x += goalkeeper.vx;
+      const leftLimit = canvas.width * 0.3;
+      const rightLimit = canvas.width * 0.7;
+      if (goalkeeper.x < leftLimit) {
+        goalkeeper.x = leftLimit;
+        goalkeeper.vx = Math.abs(goalkeeper.vx);
+      }
+      if (goalkeeper.x > rightLimit) {
+        goalkeeper.x = rightLimit;
+        goalkeeper.vx = -Math.abs(goalkeeper.vx);
+      }
+    }
+
+    function updateBall() {
+      if (!ball.isShooting) return;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      ball.vx *= 0.98;
+      ball.vy *= 0.98;
+    }
+
     function drawBall() {
       const scale = getScale(ball.y);
       const r = ball.radius * scale;
-
-      // 画像が読み込まれていれば画像で描画、未読み込みなら白い円を表示
       if (ballImage.complete && ballImage.naturalWidth !== 0) {
-        // ボールの中心が (ball.x, ball.y) になるように描画
         ctx.drawImage(ballImage, ball.x - r, ball.y - r, r * 2, r * 2);
       } else {
-        // 画像が未読込の場合のフォールバック（白い円）
         ctx.beginPath();
         ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
@@ -200,111 +213,78 @@
       }
     }
 
-    // ゴールキーパーを描画 (ここでは四角形+頭部の円)
-    function drawGoalkeeper() {
-      const scale = getScale(goalkeeper.y);
-      const w = goalkeeper.width * scale;
-      const h = goalkeeper.height * scale;
-      ctx.fillStyle = '#555';
-      ctx.fillRect(goalkeeper.x - w/2, goalkeeper.y - h, w, h);
-      // 頭部を円で描画
-      ctx.beginPath();
-      ctx.arc(goalkeeper.x, goalkeeper.y - h - (10*scale), 10*scale, 0, Math.PI*2);
-      ctx.fillStyle = '#ccc';
-      ctx.fill();
-    }
-
-    // ゴールキーパーの移動 (ゴール範囲内を左右に)
-    function updateGoalkeeper() {
-      goalkeeper.x += goalkeeper.vx;
-      const leftLimit = canvas.width * 0.3;
-      const rightLimit = canvas.width * 0.7;
-      if (goalkeeper.x < leftLimit) {
-        goalkeeper.x = leftLimit;
-        goalkeeper.vx *= -1;
-      }
-      if (goalkeeper.x > rightLimit) {
-        goalkeeper.x = rightLimit;
-        goalkeeper.vx *= -1;
-      }
-    }
-
-    // ボールの移動
-    function updateBall() {
-      if (!ball.isShooting) return;
-      ball.x += ball.vx;
-      ball.y += ball.vy;
-      // 摩擦
-      ball.vx *= 0.98;
-      ball.vy *= 0.98;
-    }
-
-    // ゴール判定 (地平線より上に行ったらゴール判定)
-    function checkGoal() {
-      if (ball.y < horizon + 20) {
-        // ボールがゴールライン付近を通過したのでゴール判定
-        // キーパーの位置とボールの位置が重なってなければゴール
-        const distGK = Math.hypot(ball.x - goalkeeper.x, ball.y - goalkeeper.y);
-        const scaleGK = getScale(goalkeeper.y);
-        const gkRadius = 25 * scaleGK; // ゴールキーパーの当たり判定(適当)
-        const scaleBall = getScale(ball.y);
-        const ballRadius = ball.radius * scaleBall;
-
-        if (distGK > gkRadius + ballRadius) {
-          // ゴール成功
-          score++;
-          alert("GOAL!!");
-        } else {
-          // セーブ
-          alert("Saved by GK!");
-        }
-        resetBall();
-      }
-    }
-
-    // ボールとキーパーの衝突判定 (正面で当たった場合の補助)
-    function checkCollision() {
-      if (!ball.isShooting) return;
-      const dist = Math.hypot(ball.x - goalkeeper.x, ball.y - goalkeeper.y);
-      const scaleGK = getScale(goalkeeper.y);
-      const gkRadius = 25 * scaleGK;
-      const scaleBall = getScale(ball.y);
-      const ballRadius = ball.radius * scaleBall;
-
-      if (dist < gkRadius + ballRadius) {
-        // キーパーに当たった
-        alert("Saved by GK!");
-        resetBall();
-      }
-    }
-
-    // ボールリセット
+    // リセット処理が重複しないようにするためのフラグ
+    let resetInProgress = false;
     function resetBall() {
+      if (resetInProgress) return;
+      resetInProgress = true;
+      
       ball.x = canvas.width / 2;
       ball.y = 500;
       ball.vx = 0;
       ball.vy = 0;
       ball.isShooting = false;
-
       shotCount++;
-      if (shotCount >= maxShots) {
-        alert("ゲーム終了！ あなたのスコア: " + score);
+      if (shotCount === maxShots) {
+        alert("ゲーム終了！");
         shotCount = 0;
-        score = 0;
       }
       updateUI();
+      
+      // 少し待ってからリセット状態を解除（重複防止）
+      setTimeout(() => { resetInProgress = false; }, 0);
     }
 
-    // UI更新
+    // スコアではなく試行回数のみ表示
     function updateUI() {
-      scoreUI.textContent = "SCORE " + score;
       countUI.textContent = shotCount + "/" + maxShots;
     }
 
-    // マウス操作 (ドラッグでシュート方向とパワーを決定)
+    // ゴール判定：
+    // ボールがゴールライン（horizon+20）を超えた場合に、さらにボールの x 座標が
+    // ゴールポスト内（canvas.width*0.3～canvas.width*0.7）のときのみゴールと判定
+    function checkGoal() {
+      if (ball.y < horizon + 20) {
+        const goalLeft = canvas.width * 0.3;
+        const goalRight = canvas.width * 0.7;
+        if (ball.x >= goalLeft && ball.x <= goalRight) {
+          goalMessage.textContent = "GOAL!";
+          goalMessage.style.display = "block";
+          paused = true;
+          setTimeout(() => {
+            goalMessage.style.display = "none";
+            resetBall();
+            paused = false;
+          }, 1000);
+        } else {
+          // ゴールポストの外側の場合は単にリセット
+          resetBall();
+        }
+      }
+    }
+
+    // キーパーとの衝突判定：衝突した場合は alert の代わりに「止めた！」と表示
+    function checkCollision() {
+      if (!ball.isShooting) return;
+      const dist = Math.hypot(ball.x - goalkeeper.x, ball.y - goalkeeper.y);
+      const scaleGK = getScale(goalkeeper.y);
+      const gkRadius = 200 * scaleGK;
+      const scaleBall = getScale(ball.y);
+      const ballRadius = ball.radius * scaleBall;
+      if (dist < gkRadius + ballRadius) {
+         goalMessage.textContent = "止めた！";
+         goalMessage.style.display = "block";
+         paused = true;
+         setTimeout(() => {
+           goalMessage.style.display = "none";
+           resetBall();
+           paused = false;
+         }, 1000);
+      }
+    }
+
     let isDragging = false;
     let dragStart = { x: 0, y: 0 };
-
     canvas.addEventListener('mousedown', (e) => {
       if (!ball.isShooting) {
         isDragging = true;
@@ -317,7 +297,6 @@
         isDragging = false;
         const dx = dragStart.x - e.offsetX;
         const dy = dragStart.y - e.offsetY;
-        // シュートベクトル（上下左右を反転）
         ball.vx = -dx * 0.2;
         ball.vy = -dy * 0.2;
         ball.isShooting = true;
@@ -325,41 +304,23 @@
       }
     });
 
-    // メインループ
     function gameLoop() {
       if (paused) {
         requestAnimationFrame(gameLoop);
         return;
       }
-
       drawBackground();
       updateGoalkeeper();
       updateBall();
-
       drawGoalkeeper();
       drawBall();
-
       if (ball.isShooting) {
-        checkCollision(); // キーパーとの衝突
-        checkGoal();      // ゴール判定
+        checkCollision();
+        checkGoal();
       }
-
       requestAnimationFrame(gameLoop);
     }
 
-    // ポーズボタン
-    function togglePause() {
-      paused = !paused;
-      if (!paused) {
-        gameLoop();
-      }
-    }
-    // 音量ボタン（デモでは機能はダミー）
-    function toggleSound() {
-      alert("サウンドのオン/オフを切り替える想定です。");
-    }
-
-    // 初期化
     updateUI();
     gameLoop();
   </script>
